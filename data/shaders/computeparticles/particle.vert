@@ -23,4 +23,5 @@ void main ()
   gl_PointSize = 2.0;
   outColor = inVel;
   gl_Position = vec4(inPos.xy, 1.0, 1.0);
+  //outColor.rgb = vec3(1.0, 0.0, 0.0);
 }

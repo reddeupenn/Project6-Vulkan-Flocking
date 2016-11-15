@@ -5,8 +5,8 @@
 
 struct Particle
 {
-	vec2 pos;
-	vec2 vel;
+    vec2 pos;
+    vec2 vel;
 };
 
 // LOOK: These bindings correspond to the DescriptorSetLayouts and
@@ -15,13 +15,13 @@ struct Particle
 // Binding 0 : Particle storage buffer (read)
 layout(std140, binding = 0) buffer ParticlesA
 {
-   Particle particlesA[ ];
+    Particle particlesA[ ];
 };
 
 // Binding 1 : Particle storage buffer (write)
 layout(std140, binding = 1) buffer ParticlesB
 {
-   Particle particlesB[ ];
+    Particle particlesB[ ];
 };
 
 layout (local_size_x = 16, local_size_y = 16) in;
@@ -31,44 +31,117 @@ layout (local_size_x = 16, local_size_y = 16) in;
 // frame rate.
 layout (binding = 2) uniform UBO
 {
-	float deltaT;
-	float rule1Distance;
-	float rule2Distance;
-	float rule3Distance;
-	float rule1Scale;
-	float rule2Scale;
-	float rule3Scale;
-	int particleCount;
+    float deltaT;
+    float rule1Distance;
+    float rule2Distance;
+    float rule3Distance;
+    float rule1Scale;
+    float rule2Scale;
+    float rule3Scale;
+    int particleCount;
 } ubo;
 
 void main()
 {
-		// LOOK: This is very similar to a CUDA kernel.
-		// Right now, the compute shader only advects the particles with their
-		// velocity and handles wrap-around.
-		// TODO: implement flocking behavior.
+    // LOOK: This is very similar to a CUDA kernel.
+    // Right now, the compute shader only advects the particles with their
+    // velocity and handles wrap-around.
+    // TODO: implement flocking behavior.
 
     // Current SSBO index
     uint index = gl_GlobalInvocationID.x;
-	// Don't try to write beyond particle count
+    // Don't try to write beyond particle count
     if (index >= ubo.particleCount)
-		return;
+	    return;
+
+
+    // loop through particles
+    uint numNeighborsCenter = 0;
+    uint numNeighborsVelocity = 0;
+    
+    vec2 center = vec2(0.0, 0.0);
+    vec2 velocity= vec2(0.0, 0.0);
+    vec2 prox = vec2(0.0, 0.0);
+
+    float maxSpeed = 1.0;
+
+    /*
+    // for AABB optimization on large number of particles
+    float maxDist = ubo.rule1Distance;
+    if (maxDist < ubo.rule2Distance)
+        maxDist =  ubo.rule2Distance;
+    if (maxDist < ubo.rule3Distance)
+        maxDist =  ubo.rule3Distance;
+    */
 
     // Read position and velocity
-		vec2 vPos = particlesA[index].pos.xy;
+	vec2 vPos = particlesA[index].pos.xy;
     vec2 vVel = particlesA[index].vel.xy;
 
-		// clamp velocity for a more pleasing simulation.
-		vVel = normalize(vVel) * clamp(length(vVel), 0.0, 0.1);
 
-		// kinematic update
-		vPos += vVel * ubo.deltaT;
+    for (int i = 0; i < ubo.particleCount; i++)
+	{
+		if (i != index)
+		{
+            /*
+            // check bounds first SLOWER
+            if (abs(particlesA[i].pos.x - vPos.x) > maxDist || 
+                abs(particlesA[i].pos.y - vPos.y) > maxDist)
+                continue;
+            else*/
+            {
+			    float dist = distance(particlesA[i].pos, vPos);
+			    //printf("\ndist: %f", dist);
+			    if (dist < ubo.rule1Distance)
+			    {
+				    center = center + particlesA[i].pos;
+				    numNeighborsCenter++;
+			    }
+			    if (dist < ubo.rule2Distance)
+			    {
+				    prox = prox - (particlesA[i].pos - vPos);
+			    }
+			    if (dist < ubo.rule3Distance)
+			    {
+				    velocity = velocity + particlesA[i].vel;
+				    numNeighborsVelocity++;
+			    }
+            }
+		}
+	}
+
+    
+	if (numNeighborsCenter != 0)
+	{
+		center /= numNeighborsCenter;
+		vVel += (center - vPos) * ubo.rule1Scale;
+	}
+
+	if (numNeighborsVelocity != 0)
+	{
+		//velocity = velocity / (float)numNeighborsVelocity;
+		vVel += velocity * ubo.rule3Scale;
+	}
+
+	vVel += prox * ubo.rule2Scale;
+
+	if (length(vVel) > maxSpeed)
+	{
+		vVel = normalize(vVel) * maxSpeed;
+	}
+
+	// clamp velocity for a more pleasing simulation.
+	vVel = normalize(vVel) * clamp(length(vVel), 0.0, 0.1);
+
+	// kinematic update
+	vPos += vVel * ubo.deltaT;
 
     // Wrap around boundary
-		if (vPos.x < -1.0) vPos.x = 1.0;
-		if (vPos.x > 1.0) vPos.x = -1.0;
-		if (vPos.y < -1.0) vPos.y = 1.0;
-		if (vPos.y > 1.0) vPos.y = -1.0;
+	if (vPos.x < -1.0) vPos.x = 1.0;
+	if (vPos.x > 1.0) vPos.x = -1.0;
+	if (vPos.y < -1.0) vPos.y = 1.0;
+	if (vPos.y > 1.0) vPos.y = -1.0;
+
 
     particlesB[index].pos.xy = vPos;
 
